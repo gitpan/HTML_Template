@@ -2,7 +2,7 @@ package HTML::Template;
 
 use strict;
 use vars qw( $VERSION %CACHE );
-$VERSION = 0.01;
+$VERSION = 0.02;
 
 =head1 NAME
 
@@ -113,6 +113,10 @@ the template is output the <TMPL_VAR> is replaced with the VALUE text
 you specified.  If you don't set a parameter it just gets skipped in
 the output.
 
+The "NAME=" in the tag is now optional, although for exensibility's
+sake I recommend using it.  Example - "<TMPL_VAR PARAMETER_NAME>" is
+now acceptable.
+
 =head2 <TMPL_LOOP NAME="LOOP_NAME"> </TMPL_LOOP>
 
 The <TMPL_LOOP> tag is a bit more complicated.  The <TMPL_LOOP> tag
@@ -174,6 +178,10 @@ name=>value pairs for a single pass over the loop template.  It is
 probably in your best interest to build these up programatically, but
 that is up to you!
 
+The "NAME=" in the tag is now optional, although for exensibility's
+sake I recommend using it.  Example - "<TMPL_LOOP LOOP_NAME>" is
+now acceptable.
+
 =cut
 
 =head1 Methods
@@ -219,6 +227,13 @@ prefer.
 
   my $t = HTML::Template->new_array_ref($ref_to_array_of_lines, 
                                        option => 'value');
+
+And as a final option, for those that might prefer it, you can call new as:
+
+  my $t = HTML::Template->new_file(type => 'filename', 
+                                   source => 'file.tmpl');
+
+Which works for all three of the source types.
 
 You can modify the Template object's behavior with new.  These options
 are available:
@@ -275,6 +290,21 @@ sub new {
     || ($self->{vanguard_compatibility_mode} = 0);
 
   $self->{param} = {};
+
+  # handle the "type" "source" parameter format
+  if (exists($self->{type})) {
+    (exists($self->{source})) || (die "HTML::Template->new() called with 'type' parameter set, but no 'source'!");
+    $self->{$self->{type}} = $self->{source};
+  }
+
+  # check for syntax errors:
+  my $source_count = 0;
+  (exists($self->{filename})) && ($source_count++);
+  (exists($self->{arrayRef})) && ($source_count++);
+  (exists($self->{scalarRef})) && ($source_count++);
+  if ($source_count > 1) {
+    die "HTML::Template->new called with multiple template sources specified!  A valid call to new() has at most one filename => 'file' OR one scalarRef => \\\$scalar OR one arrayRef = \\\@array.";
+  }
 
   # initialize data structures
   $self->_init;
@@ -358,8 +388,10 @@ sub _init_template {
     $self->{template} = \@templateArray;
 
   } elsif (exists($self->{scalarref})) {
-    # split it into an array by line
+    # split it into an array by line, preserving \n's on all but the
+    # last line
     my @templateArray = split("\n", ${$self->{scalarref}});
+    foreach my $line (@templateArray) { $line .= "\n"; }
 
     # copy in the ref
     $self->{template} = \@templateArray;
@@ -407,10 +439,10 @@ sub _pre_parse {
 
     while(!$done_with_line) {
       # Look for a loop start
-      if ($line =~ /(.*?)<[tT][mM][pP][lL]_[Ll][Oo][Oo][Pp]\s+[nN][aA][mM][eE]\s*=\s*["']?(\w+)["']?\s*[>]{1}?(.*)/g) {
+      if ($line =~ /(.*?)<[tT][mM][pP][lL]_[lL][oO][oO][pP]\s+([nN][aA][mM][eE]\s*=)?\s*"?(\w+)"?\s*>(.*)/g) {
         my $preloop = $1;
-        my $name = lc $2;
-        my $chunk = $3;
+        my $name = lc $3;
+        my $chunk = $4;
         ($self->{debug}) && (print "$line_number : saw loop $name\n");
         
         # find the end of the loop
@@ -427,7 +459,7 @@ sub _pre_parse {
         
         # store the results
         push(@{$self->{loop_heap}{$name}{spot}}, $line_number);
-        push(@{$self->{loop_heap}{$name}{template_object}}, HTML::Template->new( scalarref => \$loop_body ));
+        push(@{$self->{loop_heap}{$name}{template_object}}, HTML::Template->new( scalarref => \$loop_body, debug => $self->{debug} ));
         
         # if we've got a multiline match we'll need to undef the
         # lines we gobbled for the loop body.
@@ -444,7 +476,7 @@ sub _pre_parse {
         next;          
       }
       
-      my @names = ($line =~ /<[tT][mM][pP][lL]_[vV][aA][rR]\s+[nN][aA][mM][eE]\s*=\s*"?(\w+)"?\s*[>]{1}?/g);
+      my @names = ($line =~ /<[tT][mM][pP][lL]_[vV][aA][rR]\s+(?:[nN][aA][mM][eE]\s*=)?\s*"?(\w+)"?\s*>/gx);
       foreach my $name (@names) {
         $name = lc($name);
         (exists($self->{param_map}{$name})) || ($self->{param_map}{$name} = []);
@@ -544,7 +576,14 @@ sub param {
     }
 
     # set the parameter and return $self
-    $self->{param}{$param} = $value;
+
+    # copy in contents of ARRAY refs to prevent confusion - 
+    # thanks Richard!
+    if ( ref($value) eq 'ARRAY' ) {
+      $self->{param}{$param} = [@{$value}];
+    } else {
+      $self->{param}{$param} = $value;
+    }
     return $self;
   }
 
@@ -600,7 +639,7 @@ sub output {
     foreach my $spot (@{$self->{param_map}{$name}}) {
       defined($templateChanges{$spot}) 
         || ($templateChanges{$spot} = $self->{template}[$spot]);
-      my $found = ($templateChanges{$spot} =~ s/<tmpl_var\s+name\s*=\s*"?${name}"?\s*[>]{1}?/$value/sgi);
+      my $found = ($templateChanges{$spot} =~ s/<tmpl_var\s+(name\s*=)?\s*"?${name}"?\s*>/$value/sgi);
       ($self->{debug}) && (print "matched $name $found times at $spot\n");
     }
   }
@@ -667,6 +706,13 @@ module and a test script / test template demonstrating the problem.
 This module was the brain child of my boss, Jesse Erlbaum
 (jesse@vm.com) here at Vanguard Media.  The most original idea in this
 module - the <TMPL_LOOP> - was entirely his.
+
+Fixes and Bug Reports have been generously provided by:
+
+   Richard Chen
+
+
+Thanks!
 
 =head1 AUTHOR
 

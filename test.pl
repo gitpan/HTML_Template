@@ -75,10 +75,24 @@ $template->param('ADJECTIVE_LOOP', [ { ADJECTIVE => 'really' }, { ADJECTIVE => '
 my $output =  $template->output;
 if ($output =~ /ADJECTIVE_LOOP/) {
   die "not ok 4\n\n";
-  print $output;
-} elsif ($output =~ /really.*very/) {
+} elsif ($output =~ /really.*very/s) {
   print "ok 4\n";
 } else {
   die "not ok 4\n\n";
-  print $output;
 }
+
+# test a simple loop template
+$template = HTML::Template->new(
+                                   filename => 'templates/simple-loop-nonames.tmpl',
+                                  );
+$template->param('ADJECTIVE_LOOP', [ { ADJECTIVE => 'really' }, { ADJECTIVE => 'very' } ] );
+
+my $output =  $template->output;
+if ($output =~ /ADJECTIVE_LOOP/) {
+  die "not ok 5\n\n";
+} elsif ($output =~ /really.*very/s) {
+  print "ok 5\n";
+} else {
+  die "not ok 5\n\n";
+}
+

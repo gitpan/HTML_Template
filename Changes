@@ -6,4 +6,16 @@ Revision history for Perl extension HTML::Template.
 0.01  Mon May 17 15:17:00 1999
         - added cacheing to module and perldoc
         - moved .tmpl files used by 'make test' to /templates
+        - first release!
+
+0.02  Mon May 31 12:47:00 1999
+        - die on multiple source parameters in new()
+        - tries to preserve newlines in loop body
+        - copies in array contents from array refs on param call
+          i.e. allows for reuse of scratch arrays on calling side
+        - Added a CREDITS section to the docs, inaugurated it with
+          Richard Chen for his many fixes.
+        - Added type => 'sometype', source => 'source' new() syntax.
+        - made "NAME=" in tags optional.  Added a test.pl to check for
+          this.
 
