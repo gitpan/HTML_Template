@@ -1,0 +1,9 @@
+Revision history for Perl extension HTML::Template.
+
+0.00  Fri May 14 14:59:06 1999
+	- original version; created by h2xs 1.18
+
+0.01  Mon May 17 15:17:00 1999
+        - added cacheing to module and perldoc
+        - moved .tmpl files used by 'make test' to /templates
+
