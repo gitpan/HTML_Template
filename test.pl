@@ -20,7 +20,7 @@ print "ok 1\n";
 
 # test a simple template
 my $template = HTML::Template->new(
-                                       filename => 'templates/simple.tmpl',
+                                       filename => 'templates/simple.tmpl',                                
                                       );
 $template->param('ADJECTIVE', 'very');
 my $output =  $template->output;
@@ -95,4 +95,12 @@ if ($output =~ /ADJECTIVE_LOOP/) {
 } else {
   die "not ok 5\n\n";
 }
+
+# test a long loop template - mostly here to use timing on.
+$template = HTML::Template->new(
+                                filename => 'templates/long_loops.tmpl',
+                                  );
+my $output =  $template->output;
+print "ok 6\n";
+
 

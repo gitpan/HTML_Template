@@ -2,7 +2,7 @@ package HTML::Template;
 
 use strict;
 use vars qw( $VERSION %CACHE );
-$VERSION = 0.02;
+$VERSION = 0.03;
 
 =head1 NAME
 
@@ -113,9 +113,9 @@ the template is output the <TMPL_VAR> is replaced with the VALUE text
 you specified.  If you don't set a parameter it just gets skipped in
 the output.
 
-The "NAME=" in the tag is now optional, although for exensibility's
-sake I recommend using it.  Example - "<TMPL_VAR PARAMETER_NAME>" is
-now acceptable.
+The "NAME=" in the tag is optional, although for exensibility's sake I
+recommend using it.  Example - "<TMPL_VAR PARAMETER_NAME>" is
+acceptable.
 
 =head2 <TMPL_LOOP NAME="LOOP_NAME"> </TMPL_LOOP>
 
@@ -178,9 +178,8 @@ name=>value pairs for a single pass over the loop template.  It is
 probably in your best interest to build these up programatically, but
 that is up to you!
 
-The "NAME=" in the tag is now optional, although for exensibility's
-sake I recommend using it.  Example - "<TMPL_LOOP LOOP_NAME>" is
-now acceptable.
+The "NAME=" in the tag is optional, although for exensibility's sake I
+recommend using it.  Example - "<TMPL_LOOP LOOP_NAME>" is acceptable.
 
 =cut
 
@@ -214,8 +213,8 @@ and
 These initialize the template from in-memory resources.  These are
 mostly of use internally for the module - in almost every case you'll
 want to use the filename parameter.  If you're worried about all the
-disk access from a template file just use the cache option detailed
-below.
+disk access from a template file just use mod_perl and the cache
+option detailed below.
 
 The three new() calling methods can also be accessed as below, if you
 prefer.
@@ -243,7 +242,7 @@ are available:
 =item *
 
 debug - if set to 1 the module will write debugging information to
-STDOUT.  Defaults to 0.
+STDERR.  Defaults to 0.
 
 =item *
 
@@ -284,8 +283,9 @@ sub new {
 
   # set default parameters
   exists($self->{debug}) || ($self->{debug} = 0);
+  exists($self->{timing}) || ($self->{timing} = 0);
   exists($self->{cache}) || ($self->{cache} = 0);
-  exists($self->{die_on_bad_param}) || ($self->{die_on_bad_param} = 1);
+  exists($self->{die_on_bad_params}) || ($self->{die_on_bad_params} = 1);
   exists($self->{vanguard_compatibility_mode}) 
     || ($self->{vanguard_compatibility_mode} = 0);
 
@@ -306,6 +306,8 @@ sub new {
     die "HTML::Template->new called with multiple template sources specified!  A valid call to new() has at most one filename => 'file' OR one scalarRef => \\\$scalar OR one arrayRef = \\\@array.";
   }
 
+  ($self->{timing}) && ($self->{start_time} = (times)[0]);
+  
   # initialize data structures
   $self->_init;
   
@@ -354,8 +356,10 @@ sub _init {
 
   # init the template and parse data
   $self->_init_template;
+  ($self->{timing}) && ($self->{load_time} = (times)[0]);
   $self->_pre_parse;
-  
+  ($self->{timing}) && ($self->{parse_time} = (times)[0]);
+
   # if we're caching, cache the results of _init_template and _pre_parse
   # for future use
   if ($self->{cache} && (exists($self->{filename}))) {
@@ -423,27 +427,33 @@ sub _pre_parse {
   
   ($self->{debug}) && (print "\nIn pre_parse:\n\n");
 
+  ($self->{timing}) && ($self->{parse_in} = (times)[0]);
+
   $self->{param_map} = {};
   $self->{loop_heap} = {};
   
   for (my $line_number = 0; $line_number <= $#{$self->{template}}; $line_number++) {
     my $line = $self->{template}[$line_number];
+    defined($line) || next;
     my $done_with_line = 0;
 
     # handle the old vanguard format
     if ($self->{vanguard_compatibility_mode}) {
-      if ($line =~ s/[%]{1}([\w]+)[%]{1}/<TMPL_VAR NAME=$1>/g) {
+      if ($line =~ s/%([\w]+)%/<TMPL_VAR NAME=$1>/g) {
         $self->{template}[$line_number] = $line;
       }
     }
 
     while(!$done_with_line) {
       # Look for a loop start
+      defined($line) || last;
+
       if ($line =~ /(.*?)<[tT][mM][pP][lL]_[lL][oO][oO][pP]\s+([nN][aA][mM][eE]\s*=)?\s*"?(\w+)"?\s*>(.*)/g) {
         my $preloop = $1;
         my $name = lc $3;
         my $chunk = $4;
         ($self->{debug}) && (print "$line_number : saw loop $name\n");
+        ($self->{timing}) && ($self->{loop_in} = (times)[0]);      
         
         # find the end of the loop
         my ($loop_body, $leftover, $pos);
@@ -465,17 +475,20 @@ sub _pre_parse {
         # lines we gobbled for the loop body.
         if ($pos > $line_number) {
           foreach (my $x = $line_number + 1; $x <= $pos; $x++) {
-              $self->{template}[$x] = undef;
-            }
+            $self->{template}[$x] = undef;
           }
+        }
         
         # now reform $line to remove loop body
         $line = $preloop . ' <TMPL_LOOP NAME=' . $name . ' PLACEHOLDER> ' . $leftover;
           # donate back the changes
         $self->{template}[$line_number] = $line;
+        ($self->{timing}) && ($self->{loop_out} = (times)[0]);      
+        ($self->{timing}) && (warn "Loop $name : find time " . ($self->{loop_out} - $self->{loop_in}));
         next;          
       }
-      
+
+      defined($line) || last;
       my @names = ($line =~ /<[tT][mM][pP][lL]_[vV][aA][rR]\s+(?:[nN][aA][mM][eE]\s*=)?\s*"?(\w+)"?\s*>/gx);
       foreach my $name (@names) {
         $name = lc($name);
@@ -501,6 +514,12 @@ sub _pre_parse {
 # not contain a valid loop body.
 sub _extractLoop {
   my ($self, $chunkRef) = @_;
+
+  # a huge speedup on large templates - the loop body extraction regex
+  # is really quite slow.
+  if (!( $$chunkRef =~ /<\/[Tt][Mm][Pp][Ll]_[Ll][Oo][Oo][Pp]>/s)) {
+    return undef;
+  }
 
   # try each possible loop body available
   my ($loop_body, $leftover);
@@ -560,7 +579,7 @@ sub param {
   } elsif (!defined($value)) {
     $param = lc($param);
     # check for parameter existence 
-    if ($self->{die_on_bad_param} && !exists($self->{param_map}{$param})
+    if ($self->{die_on_bad_params} && !exists($self->{param_map}{$param})
                                     && !exists($self->{loop_heap}{$param})) {
       die("HTML::Template : Attempt to set nonexistent parameter $param");
     }
@@ -570,7 +589,7 @@ sub param {
   } else {
     $param = lc($param);
     # check that this param exists in the template
-    if ($self->{die_on_bad_param} && !exists($self->{param_map}{$param})
+    if ($self->{die_on_bad_params} && !exists($self->{param_map}{$param})
                                     && !exists($self->{loop_heap}{$param})) {
       die("HTML::Template : Attempt to set nonexistent parameter $param");
     }
@@ -623,6 +642,7 @@ important for the internal implementation of loops.
 
 sub output {
   my $self = shift;
+  ($self->{timing}) && ($self->{output_in_time} = (times)[0]);
   ($self->{debug}) && (print "\nIn output\n\n");
 
   # keep a hash of lines changed in the replace loop
@@ -682,6 +702,16 @@ sub output {
       $result .= $self->{template}[$x];
     }
   }
+
+  # warn a little timing information if timing => 1
+  if ($self->{timing}) {
+    $self->{output_out_time} = (times)[0];
+    warn "Loaded Template at: " . ($self->{load_time} - $self->{start_time});
+    warn "Parsed Template at: " . ($self->{parse_time} - $self->{start_time});
+    warn "Params Loaded   at: " . ($self->{output_in_time} - $self->{start_time});
+    warn "Output Done     at: " . ($self->{output_out_time} - $self->{start_time});
+  }
+
   return $result;
 }
 
@@ -717,6 +747,10 @@ Thanks!
 =head1 AUTHOR
 
 Sam Tregar, sam@tregar.com
+
+I'll be out of email range (in Tunisia!) from June 27th to July 20th
+of 1999.  During this period bugs and suggestions can be sent to my
+boss here at Vanguard - Jesse (jesse@vm.com).
 
 =head1 LICENCE
 

@@ -19,3 +19,9 @@ Revision history for Perl extension HTML::Template.
         - made "NAME=" in tags optional.  Added a test.pl to check for
           this.
 
+0.03  Fri June 11 17:37:00 1999
+        - fixed a few irritating "undefined variable" errors in -w
+        - big speedup on large TMPL_LOOPs.  They are at least one order of
+          magnitude faster now!
+        - die_on_bad_params => 0 never really worked!  It does now.
+
